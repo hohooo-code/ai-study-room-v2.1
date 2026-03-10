@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 24H 旗艦動漫自習室</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+    <style>
+        body { background-color: #05070a; color: #e0e0e0; font-family: 'Inter', sans-serif; overflow: hidden; }
+        
+        /* --- 全域漂亮捲軸樣式 --- */
+        * { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+        /* --- 網格佈局 --- */
+        .cam-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); 
+            gap: 1rem; 
+            overflow-y: auto;
+            height: 100%;
+            align-content: start;
+            padding-bottom: 2rem;
+        }
+
+        /* --- 虛擬書桌樣式 --- */
+        .desk-wood { border: 4px solid #8b5a2b; box-shadow: 0 4px 0 #5c3a1b; } 
+        .desk-metal { border: 4px solid #94a3b8; box-shadow: 0 0 10px #cbd5e1; } 
+        .desk-gold { border: 4px solid #fbbf24; box-shadow: 0 0 15px #f59e0b, inset 0 0 10px #f59e0b; } 
+        .desk-holo { border: 4px solid #06b6d4; box-shadow: 0 0 20px #06b6d4, inset 0 0 20px #0891b2; animation: pulse-holo 2s infinite; } 
+
+        @keyframes pulse-holo { 50% { box-shadow: 0 0 30px #22d3ee, inset 0 0 30px #06b6d4; } }
+
+        /* --- 火焰特效 --- */
+        .frame-flame { 
+            border-color: #ff4500 !important; 
+            animation: flame-burn 1s infinite alternate; 
+        }
+        @keyframes flame-burn { from { box-shadow: 0 0 10px #ff4500; } to { box-shadow: 0 0 25px #ff8c00; } }
+
+        /* --- UI 元件 --- */
+        .tab-btn { @apply px-4 py-2 text-xs font-bold text-gray-400 border-b-2 border-transparent hover:text-white transition-all; }
+        .tab-active { @apply text-blue-400 border-blue-400; }
+        
+        /* 警告文字動畫 */
+        .warning-pulse { animation: pulse-red 1s infinite; color: #fbbf24; font-weight: bold; }
+        @keyframes pulse-red { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        /* =========================================
+           【優化 2】開啟 GPU 硬體加速的表情漂浮動畫
+           ========================================= */
+        @keyframes floatUp {
+            0% { 
+                transform: translateY(0) scale(0.5); 
+                opacity: 0; 
+            }
+            10% { 
+                transform: translateY(-10vh) scale(1.2); 
+                opacity: 1; 
+            }
+            50% { 
+                transform: translateY(-40vh) scale(1.5); 
+                opacity: 0.9; 
+            }
+            100% { 
+                transform: translateY(-80vh) scale(1); 
+                opacity: 0; 
+            }
+        }
+        .floating-emoji {
+            position: fixed;
+            bottom: 100px;
+            pointer-events: none; /* 讓滑鼠穿透，不干擾點擊 */
+            /* ✅ 加上 will-change 提示瀏覽器此元素將進行動畫，強制開啟 GPU 加速 */
+            will-change: transform, opacity; 
+            animation: floatUp 3s ease-out forwards;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col md:flex-row">
+
+    <div id="startOverlay" class="fixed inset-0 bg-[#05070a] z-[9999] flex items-center justify-center">
+        <div class="bg-[#111827] p-8 rounded-3xl border border-gray-800 shadow-2xl max-w-sm w-full text-center">
+            <h1 class="text-3xl font-black text-blue-500 mb-2">STUDY VERSE</h1>
+            <p class="text-gray-500 text-xs mb-6">AI Pro Edition V4.0</p>
+            <div class="space-y-4 mb-8">
+                <input id="inputName" class="w-full bg-black p-3 rounded-xl border border-gray-700 text-white" placeholder="你的暱稱 (留空將自動帶入帳號)">
+                <input id="inputGoal" class="w-full bg-black p-3 rounded-xl border border-gray-700 text-white" placeholder="今天的目標 (如: 算微積分)">
+                <input id="inputTime" type="number" class="w-full bg-black p-3 rounded-xl border border-gray-700 text-white" value="25" placeholder="預計專注(分)">
+            </div>
+            <button id="startBtn" onclick="initApp()" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-bold text-white transition transform active:scale-95">開始潛入</button>
+        </div>
+    </div>
+
+    <aside class="w-full md:w-80 bg-[#0a0c14] border-r border-white/5 flex flex-col relative z-20">
+        <div class="p-6 bg-gradient-to-b from-blue-900/20 to-transparent border-b border-white/5">
+            <div id="clockDate" class="text-blue-400 text-xs font-bold tracking-widest mb-1">LOADING...</div>
+            <div id="clockTime" class="text-4xl font-mono font-bold text-white tracking-tighter">00:00:00</div>
+        </div>
+
+        <div class="px-6 py-4 border-b border-white/5">
+            <div class="flex justify-between items-end mb-2">
+                <span class="text-xs text-gray-400">SESSION TIMER</span>
+                <span id="myTimerDisplay" class="text-2xl font-mono font-bold text-white">00:00</span>
+            </div>
+            <div class="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                <div id="timerProgress" class="h-full bg-blue-500 w-0 transition-all duration-1000"></div>
+            </div>
+        </div>
+
+        <div class="flex border-b border-white/5 px-2">
+            <button onclick="switchTab('rank')" id="btn-rank" class="tab-btn tab-active flex-1">🔥 專注榜</button>
+            <button onclick="switchTab('achieve')" id="btn-achieve" class="tab-btn flex-1">🏆 成就/累積</button>
+        </div>
+
+        <div class="flex-1 relative overflow-hidden bg-[#05070a]/50">
+            <div id="tab-rank" class="absolute inset-0 overflow-y-auto p-4 space-y-2"></div>
+            <div id="tab-achieve" class="absolute inset-0 overflow-y-auto p-4 space-y-2 hidden"></div>
+        </div>
+
+        <div class="p-4 bg-[#111827] border-t border-white/10 flex items-center gap-3">
+            <div class="relative">
+                <img id="mySidebarAvatar" src="https://api.dicebear.com/7.x/big-smile/svg?seed=Guest&backgroundColor=b6e3f4" class="w-12 h-12 rounded-full border-2 border-gray-600 bg-gray-800">
+                <div id="myStatusLight" class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#111827]"></div>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p id="mySidebarName" class="text-sm font-bold text-white truncate">--</p>
+                <p id="mySidebarGoal" class="text-xs text-blue-400 truncate">設定目標中...</p>
+            </div>
+            <div class="text-right">
+                <p class="text-[10px] text-gray-500">STREAK</p>
+                <p id="myStreakNum" class="text-xl font-bold text-yellow-500 italic">0</p>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col relative bg-[#05070a]">
+        <header class="h-16 flex justify-between items-center px-6 border-b border-white/5">
+            <div>
+                <h2 class="text-lg font-bold text-white">虛擬共學空間 <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded ml-2">LIVE</span></h2>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-xs text-gray-500"><i class="fas fa-users mr-1"></i> <span id="onlineCount">0</span> 在線</div>
+                <button onclick="endSession()" id="endBtn" class="bg-red-600 hover:bg-red-500 text-white text-xs px-4 py-2 rounded-lg font-bold transition">結束自習</button>
+            </div>
+        </header>
+        
+        <div class="flex-1 p-4 overflow-hidden flex flex-col">
+            <div class="cam-grid" id="mainGrid">
+                <div class="flex flex-col group">
+                    <div id="myDeskFrame" class="relative aspect-video bg-gray-900 rounded-xl overflow-hidden desk-wood transition-all duration-300">
+                        <video id="webcam" class="w-full h-full object-cover scale-x-[-1]" autoplay playsinline muted></video>
+                        <div id="distractionOverlay" class="absolute inset-0 bg-black/90 flex flex-col items-center justify-center opacity-0 transition-opacity duration-300 backdrop-blur-sm z-10">
+                            <i id="overlayIcon" class="fas fa-eye-slash text-5xl text-red-500 mb-4 animate-bounce"></i>
+                            <span id="overlayText" class="text-red-400 font-bold text-lg">AI 偵測中...</span>
+                        </div>
+                        <div class="absolute top-2 left-2 bg-black/60 backdrop-blur px-2 py-1 rounded text-[10px] font-bold border border-white/10 z-20">YOU</div>
+                    </div>
+                    <div class="mt-2 bg-[#111827] p-3 rounded-lg border border-white/5 flex items-center gap-3">
+                         <div id="myStatusBubble" class="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>
+                         <div class="flex-1 min-w-0">
+                             <p class="text-[10px] text-gray-400 uppercase tracking-wider">Current Goal</p>
+                             <p id="dashboardGoal" class="text-xs font-bold text-gray-200 truncate">...</p>
+                         </div>
+                    </div>
+                </div>
+                
+                <div id="othersContainer" class="contents"></div>
+            </div>
+        </div>
+        
+        <div class="absolute bottom-8 right-8 flex gap-3 z-50 p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl">
+            <button onclick="sendReaction('🔥')" class="w-12 h-12 flex items-center justify-center bg-gray-800/80 hover:bg-orange-500 rounded-full text-2xl border border-white/10 shadow-lg transition-all hover:-translate-y-2 hover:scale-110" title="加油！">🔥</button>
+            <button onclick="sendReaction('☕')" class="w-12 h-12 flex items-center justify-center bg-gray-800/80 hover:bg-blue-500 rounded-full text-2xl border border-white/10 shadow-lg transition-all hover:-translate-y-2 hover:scale-110" title="喝口水休息下">☕</button>
+            <button onclick="sendReaction('👏')" class="w-12 h-12 flex items-center justify-center bg-gray-800/80 hover:bg-yellow-500 rounded-full text-2xl border border-white/10 shadow-lg transition-all hover:-translate-y-2 hover:scale-110" title="太棒了！">👏</button>
+            <button onclick="sendReaction('💪')" class="w-12 h-12 flex items-center justify-center bg-gray-800/80 hover:bg-green-500 rounded-full text-2xl border border-white/10 shadow-lg transition-all hover:-translate-y-2 hover:scale-110" title="撐下去！">💪</button>
+        </div>
+    </main>
+
+    <script type="module">
+        import { FilesetResolver, FaceLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js";
+
+        // 防呆機制：確保 Socket 套件有被成功載入
+        let socket;
+        if (typeof io !== 'undefined') {
+            socket = io();
+        } else {
+            console.error("Socket.io 載入失敗！請確保您是在伺服器環境 (localhost:3000) 下運行此網頁。");
+            alert("伺服器連線套件載入失敗，功能可能無法正常運作。");
+        }
+
+        let faceLandmarker, objectDetector;
+        let videoElement, audioCtx;
+        let userList = [];
+        let timerInterval;
+
+        let myStatus = "FOCUSED";
+        let distractionStartTime = 0; 
+        let lastObjectCheckTime = 0;  
+        let isPhoneDetected = false;
+        let focusSeconds = 0;
+        
+        let lastVideoTime = -1; 
+        let lastIssue = null; 
+        let lastFaceCheckTime = 0; 
+
+        // 自動帶入儲存的名字到輸入框
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedName = localStorage.getItem('studyVerseUser');
+            if (savedName) document.getElementById('inputName').value = savedName;
+        });
+
+        function getDiceBearAvatar(name) {
+            return `https://api.dicebear.com/7.x/big-smile/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4`;
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clockDate').innerText = now.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).replace(/\//g, '.');
+            document.getElementById('clockTime').innerText = now.toLocaleTimeString('zh-TW', { hour12: false });
+        }
+        setInterval(updateClock, 1000);
+
+        window.switchTab = (tab) => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+            document.getElementById(`btn-${tab}`).classList.add('tab-active');
+            document.getElementById('tab-rank').classList.add('hidden');
+            document.getElementById('tab-achieve').classList.add('hidden');
+            document.getElementById(`tab-${tab}`).classList.remove('hidden');
+        };
+
+        window.initApp = async () => {
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('startBtn').innerText = "連線中...";
+            
+            const name = localStorage.getItem('studyVerseUser') || document.getElementById('inputName').value || "神秘學員";
+            const goal = document.getElementById('inputGoal').value || "專注";
+            const min = parseInt(document.getElementById('inputTime').value) || 25;
+            
+            document.getElementById('startOverlay').style.display = 'none';
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            const endTime = Date.now() + min * 60000;
+            focusSeconds = 0; 
+
+            document.getElementById("mySidebarName").innerText = name;
+            document.getElementById("mySidebarAvatar").src = getDiceBearAvatar(name);
+            document.getElementById("mySidebarGoal").innerText = goal;
+            document.getElementById("dashboardGoal").innerText = goal;
+
+            timerInterval = setInterval(() => {
+                if (myStatus === "FOCUSED") focusSeconds++;
+
+                const diff = Math.ceil((endTime - Date.now()) / 1000);
+                if (diff <= 0) {
+                    clearInterval(timerInterval);
+                    document.getElementById("myTimerDisplay").innerText = "00:00";
+                    window.endSession();
+                } else {
+                    const m = Math.floor(diff / 60).toString().padStart(2, '0');
+                    const s = (diff % 60).toString().padStart(2, '0');
+                    document.getElementById("myTimerDisplay").innerText = `${m}:${s}`;
+                    document.getElementById("timerProgress").style.width = `${((min*60 - diff) / (min*60)) * 100}%`;
+                }
+            }, 1000);
+
+            if(socket) socket.emit("join_room", { name, goal, planTime: min });
+            
+            await initAI();
+        };
+
+        window.endSession = async () => {
+            clearInterval(timerInterval); 
+            
+            const endBtn = document.getElementById('endBtn');
+            if(endBtn) {
+                endBtn.disabled = true;
+                endBtn.innerText = "儲存中...";
+            }
+            
+            if (focusSeconds > 0) {
+                try {
+                    const response = await fetch('/api/save-focus', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            username: localStorage.getItem('studyVerseUser') || document.getElementById('inputName').value || '神秘學員',
+                            roomType: 'ai-room', 
+                            focusSeconds: focusSeconds 
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        const m = Math.floor(focusSeconds / 60);
+                        const s = focusSeconds % 60;
+                        alert(`本次自習結束！\n您的有效專注時間為：${m} 分 ${s} 秒\n（已成功存入資料庫）`);
+                    } else {
+                        alert("儲存可能失敗，請檢查網路連線。");
+                    }
+                } catch (error) {
+                    console.error("儲存紀錄時發生錯誤:", error);
+                    alert("儲存紀錄時發生伺服器錯誤！");
+                }
+            } else {
+                alert("本次自習時間過短，未產生有效專注紀錄。");
+            }
+
+            if(videoElement && videoElement.srcObject) {
+                videoElement.srcObject.getTracks().forEach(track => track.stop());
+            }
+            window.location.href = 'index.html'; 
+        };
+
+        // =========================================
+        // 【優化 1】防連點機制與樂觀更新
+        // =========================================
+        let isEmojiCooldown = false; // 控制防連點冷卻
+
+        // 獨立出產生表情動畫的函數，方便自己和別人呼叫
+        function createFloatingEmoji(username, emoji) {
+            const el = document.createElement('div');
+            el.className = 'floating-emoji';
+            
+            // 隨機出現在中間區域 (30% ~ 70% 寬度)
+            const randomX = Math.floor(Math.random() * 40) + 30; 
+            el.style.left = `${randomX}%`;
+            
+            el.innerHTML = `
+                <span class="text-5xl drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]">${emoji}</span>
+                <span class="text-[10px] font-bold text-white bg-black/60 px-3 py-1 rounded-full mt-2 backdrop-blur-sm border border-white/20 whitespace-nowrap">${username}</span>
+            `;
+            
+            document.body.appendChild(el);
+            
+            // 3秒後移除
+            setTimeout(() => {
+                if (el.parentNode) el.remove();
+            }, 3000);
+        }
+
+        window.sendReaction = (emoji) => {
+            // 1. 防連點：如果還在冷卻中，直接 return 忽略點擊
+            if (isEmojiCooldown) return;
+
+            const myName = localStorage.getItem('studyVerseUser') || document.getElementById('inputName').value || '神秘學員';
+            
+            // 2. 樂觀更新：不等伺服器，立刻在自己的畫面上播動畫！
+            createFloatingEmoji(myName, emoji);
+
+            // 3. 在背景發送給伺服器，讓其他人也看到
+            if(socket) {
+                socket.emit('send_reaction', { username: myName, emoji: emoji });
+            }
+
+            // 4. 啟動冷卻時間 (例如 300 毫秒內不能再點)
+            isEmojiCooldown = true;
+            setTimeout(() => {
+                isEmojiCooldown = false;
+            }, 300);
+        };
+
+        if (socket) {
+            socket.on('receive_reaction', (data) => {
+                const myName = localStorage.getItem('studyVerseUser') || document.getElementById('inputName').value || '神秘學員';
+                // ⚠️ 重要：檢查這個表情是不是「別人」發的。因為自己的已經透過樂觀更新播過了！
+                if (data.username !== myName) {
+                    createFloatingEmoji(data.username, data.emoji);
+                }
+            });
+
+            // 原本的排行榜更新邏輯
+            socket.on("update_leaderboard", (list) => {
+                userList = list;
+                const me = list.find(u => u.id === socket.id);
+                if (me) {
+                    document.getElementById("mySidebarAvatar").src = getDiceBearAvatar(me.name);
+                    document.getElementById("myStreakNum").innerText = me.streak;
+                    updateMyDeskStyle(me.streak, me.score);
+                }
+                document.getElementById("onlineCount").innerText = list.length;
+                renderTabs(list);
+                renderGrid(list);
+            });
+        }
+        // =========================================
+
+        async function initAI() {
+            const overlay = document.getElementById("distractionOverlay");
+            overlay.style.opacity = 1;
+            document.getElementById("overlayText").innerText = "AI 模型載入中...";
+            document.getElementById("overlayIcon").className = "fas fa-robot text-5xl text-blue-500 mb-4 animate-bounce";
+
+            try {
+                const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+                
+                faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+                    baseOptions: { 
+                        modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`, 
+                        delegate: "CPU" 
+                    },
+                    outputFaceBlendshapes: true,
+                    runningMode: "VIDEO", 
+                    numFaces: 1
+                });
+
+                objectDetector = await cocoSsd.load();
+
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } });
+                videoElement = document.getElementById("webcam");
+                videoElement.srcObject = stream;
+                
+                videoElement.onloadedmetadata = () => {
+                    if (videoElement.dataset.loaded) return; 
+                    videoElement.dataset.loaded = "true";
+                    overlay.style.opacity = 0; 
+                    predictLoop();
+                };
+            } catch (err) {
+                console.error("AI 載入或攝影機存取失敗:", err);
+                overlay.style.opacity = 1;
+                document.getElementById("overlayText").innerText = "鏡頭存取失敗";
+                document.getElementById("overlayIcon").className = "fas fa-exclamation-triangle text-5xl text-yellow-500 mb-4";
+            }
+        }
+
+        async function predictLoop() {
+            const now = performance.now();
+            let currentIssue = lastIssue;
+
+            if (videoElement.currentTime > 0) {
+                // 手機偵測頻率保持 1000ms
+                if (now - lastObjectCheckTime > 1000) {
+                    lastObjectCheckTime = now;
+                    const predictions = await objectDetector.detect(videoElement);
+                    isPhoneDetected = predictions.some(p => p.class === 'cell phone' || p.class === 'mobile phone');
+                }
+
+                if (isPhoneDetected) {
+                    currentIssue = "📱 偵測到違禁品(手機)";
+                } else {
+                    // =========================================
+                    // 【優化 3】降低 AI 人臉偵測的頻率 (治本之道)
+                    // 原本是 100ms，現在改為 1500ms (1.5秒)，大幅釋放效能！
+                    // =========================================
+                    if (now - lastFaceCheckTime > 1500 && videoElement.currentTime !== lastVideoTime) {
+                        lastFaceCheckTime = now;
+                        lastVideoTime = videoElement.currentTime;
+                        
+                        const faceCheckTime = performance.now();
+                        const results = faceLandmarker.detectForVideo(videoElement, faceCheckTime);
+                        
+                        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+                            const landmarks = results.faceLandmarks[0];
+                            const blendshapes = results.faceBlendshapes[0].categories;
+
+                            const nose = landmarks[1];
+                            const leftCheek = landmarks[234];
+                            const rightCheek = landmarks[454];
+                            const faceWidth = Math.abs(rightCheek.x - leftCheek.x);
+                            const noseToLeft = Math.abs(nose.x - leftCheek.x);
+                            const yawRatio = faceWidth > 0 ? (noseToLeft / faceWidth) : 0.5;
+
+                            const isHeadDown = nose.y > 0.8;
+                            const eyeBlink = (
+                                (blendshapes.find(s => s.categoryName === 'eyeBlinkLeft')?.score || 0) + 
+                                (blendshapes.find(s => s.categoryName === 'eyeBlinkRight')?.score || 0)
+                            ) / 2;
+                            const isSleeping = eyeBlink > 0.6;
+
+                            if (yawRatio < 0.2 || yawRatio > 0.8) {
+                                currentIssue = "👀 請勿左右轉頭"; 
+                            } else if (isHeadDown) {
+                                currentIssue = "💤 偵測到趴睡";
+                            } else if (isSleeping) {
+                                currentIssue = "😴 醒醒！閉眼過久";
+                            } else {
+                                currentIssue = null; 
+                            }
+                        } else {
+                            currentIssue = "🚫 未偵測到人臉";
+                        }
+                    }
+                }
+            }
+
+            lastIssue = currentIssue;
+            handleDistractionBuffer(currentIssue, performance.now());
+            
+            if(videoElement.srcObject) {
+                requestAnimationFrame(predictLoop);
+            }
+        }
+
+        function handleDistractionBuffer(issue, now) {
+            const overlay = document.getElementById("distractionOverlay");
+            const overlayText = document.getElementById("overlayText");
+            const overlayIcon = document.getElementById("overlayIcon");
+            const statusBubble = document.getElementById("myStatusBubble");
+            const goalText = document.getElementById("dashboardGoal");
+            const originalGoal = document.getElementById("inputGoal").value || "專注";
+
+            if (issue) {
+                if (distractionStartTime === 0) distractionStartTime = now;
+                
+                const elapsed = (now - distractionStartTime) / 1000;
+                const remaining = Math.ceil(10 - elapsed);
+
+                if (elapsed < 10) {
+                    overlay.style.opacity = 0;
+                    goalText.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> ${issue} (${remaining}s)`;
+                    goalText.className = "text-xs font-bold warning-pulse truncate";
+                    statusBubble.className = "w-2 h-2 rounded-full bg-yellow-500 shadow-[0_0_8px_#fbbf24]";
+                } else {
+                    if (myStatus !== "DISTRACTED") {
+                        myStatus = "DISTRACTED";
+                        playTone(150, 0.5, "sawtooth"); 
+                        if(socket) socket.emit("report_status", { status: "DISTRACTED" });
+                    }
+                    overlay.style.opacity = 1;
+                    overlayText.innerText = issue;
+                    overlayIcon.className = issue.includes("手機") ? "fas fa-mobile-alt text-5xl text-red-500 mb-4" : "fas fa-bed text-5xl text-red-500 mb-4";
+                    statusBubble.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]";
+                    goalText.innerText = "狀態異常";
+                    goalText.className = "text-xs font-bold text-red-500 truncate";
+                }
+            } else {
+                distractionStartTime = 0;
+                if (myStatus === "DISTRACTED") {
+                    myStatus = "FOCUSED";
+                    if(socket) socket.emit("report_status", { status: "FOCUSED" });
+                }
+                if (overlay.style.opacity !== '0') overlay.style.opacity = 0;
+                statusBubble.className = "w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]";
+                goalText.innerText = originalGoal;
+                goalText.className = "text-xs font-bold text-gray-200 truncate";
+            }
+        }
+
+        function updateMyDeskStyle(streak, score) {
+            const frame = document.getElementById("myDeskFrame");
+            let baseClass = "relative aspect-video bg-gray-900 rounded-xl overflow-hidden transition-all duration-300 ";
+            if (streak >= 30) baseClass += "desk-holo";
+            else if (streak >= 7) baseClass += "desk-gold";
+            else if (streak >= 3) baseClass += "desk-metal";
+            else baseClass += "desk-wood";
+            
+            if (score >= 6000) baseClass += " frame-flame";
+            frame.className = baseClass;
+        }
+
+        function renderTabs(list) {
+            const rankHtml = [...list].sort((a,b) => b.score - a.score).map((u, i) => `
+                <div class="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5">
+                    <div class="text-sm font-bold text-gray-500 w-4">#${i+1}</div>
+                    <img src="${getDiceBearAvatar(u.name)}" class="w-8 h-8 rounded-full bg-gray-700">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-bold truncate text-gray-200">${u.name}</p>
+                        <p class="text-[10px] text-blue-400">${Math.floor(u.score/60)} min</p>
+                    </div>
+                    <div class="w-2 h-2 rounded-full ${u.status==='FOCUSED'?'bg-green-500':'bg-red-500'}"></div>
+                </div>
+            `).join('');
+            document.getElementById("tab-rank").innerHTML = rankHtml;
+
+            const achieveHtml = [...list].sort((a,b) => b.streak - a.streak).map(u => `
+                <div class="bg-[#111827] p-3 rounded-xl border border-white/10 mb-2">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold text-yellow-500"><i class="fas fa-fire mr-1"></i>Streak: ${u.streak} Days</span>
+                        <span class="text-[10px] text-gray-500">Total: ${Math.floor(u.totalScore/60)}m</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <img src="${getDiceBearAvatar(u.name)}" class="w-6 h-6 rounded-full">
+                        <span class="text-xs text-gray-300">${u.name}</span>
+                    </div>
+                    <div class="mt-2 text-[10px] text-gray-500">
+                        目前解鎖: <span class="text-gray-300">${getDeskName(u.streak)}</span>
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById("tab-achieve").innerHTML = achieveHtml;
+        }
+
+        function renderGrid(list) {
+            const socketId = socket ? socket.id : 'offline';
+            const others = list.filter(u => u.id !== socketId);
+            document.getElementById("othersContainer").innerHTML = others.map(u => {
+                let deskClass = "";
+                if (u.streak >= 30) deskClass = "desk-holo";
+                else if (u.streak >= 7) deskClass = "desk-gold";
+                else if (u.streak >= 3) deskClass = "desk-metal";
+                else deskClass = "desk-wood";
+                
+                if (u.score >= 6000) deskClass += " frame-flame";
+
+                return `
+                <div class="flex flex-col">
+                    <div class="relative aspect-video bg-gray-900 rounded-xl overflow-hidden transition-all duration-300 ${deskClass}">
+                        <div class="w-full h-full flex items-center justify-center bg-[#0a0c14]">
+                             <img src="${getDiceBearAvatar(u.name)}" class="w-20 h-20 rounded-full border-2 border-white/20">
+                        </div>
+                        <div class="absolute top-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[9px] uppercase">${u.status}</div>
+                    </div>
+                    <div class="mt-2 bg-[#111827] p-3 rounded-lg border border-white/5 flex items-center gap-3">
+                         <div class="w-2 h-2 rounded-full ${u.status==='FOCUSED'?'bg-green-500 shadow-[0_0_8px_#22c55e]':'bg-red-500 shadow-[0_0_8px_#ef4444]'}"></div>
+                         <div class="flex-1 min-w-0">
+                             <p class="text-[10px] text-gray-400 uppercase tracking-wider">${u.name}</p>
+                             <p class="text-xs font-bold text-gray-200 truncate">${u.goal}</p>
+                         </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function getDeskName(streak) {
+            if (streak >= 30) return "🚀 虛擬座艙";
+            if (streak >= 7) return "👑 黃金書桌";
+            if (streak >= 3) return "⚙️ 合金工作台";
+            return "🪵 初心木桌";
+        }
+
+        function playTone(freq, duration, type) {
+            if(!audioCtx) return;
+            const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+            o.type = type; o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            g.gain.setValueAtTime(0.05, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + duration);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STUDY VERSE - 專業大廳</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #05070a; color: #e0e0e0; font-family: 'Inter', sans-serif; }
+        * { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; }
+        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
+        .neon-text { text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+        .bg-grid-pattern { background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px); background-size: 20px 20px; }
+        .room-card:hover { transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col relative bg-grid-pattern">
+    
+    <div id="loginOverlay" class="fixed inset-0 bg-[#05070a] z-[9999] flex items-center justify-center hidden">
+        <div class="bg-[#111827] p-8 rounded-3xl border border-gray-800 shadow-2xl max-w-sm w-full text-center">
+            <h1 class="text-3xl font-black text-blue-500 mb-2">身分登錄</h1>
+            <p class="text-gray-500 text-xs mb-6">建立你的專屬指揮官代號</p>
+            <input id="setupName" onkeypress="if(event.key === 'Enter') saveName()" class="w-full bg-black p-3 rounded-xl border border-gray-700 text-white mb-6 text-center text-lg font-bold" placeholder="輸入您的專屬暱稱...">
+            <button onclick="saveName()" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-bold text-white transition">確認綁定，載入存檔</button>
+        </div>
+    </div>
+
+    <header class="h-16 flex justify-between items-center px-8 glass-panel sticky top-0 z-50">
+        <div>
+            <h1 class="text-xl font-black text-blue-500 tracking-wider neon-text">STUDY VERSE <span class="text-xs text-gray-400 font-normal">大廳</span></h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <img id="navAvatar" src="" class="w-8 h-8 rounded-full border border-gray-600 bg-gray-800" alt="User Avatar">
+            <span id="navName" class="text-sm font-bold text-gray-300">--</span>
+            <button onclick="logout()" class="text-xs text-gray-500 hover:text-white ml-2" title="登出"><i class="fas fa-sign-out-alt"></i></button>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-6xl w-full mx-auto p-6 md:p-8 flex flex-col gap-8">
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="glass-panel p-6 rounded-2xl border-t-2 border-blue-500">
+                <div class="text-gray-400 text-xs font-bold mb-2 uppercase tracking-widest"><i class="fas fa-clock text-blue-500 mr-2"></i>累積專注時間</div>
+                <div class="text-4xl font-mono font-bold text-white" id="totalTimeDisplay">--<span class="text-lg text-gray-500 ml-1">min</span></div>
+            </div>
+            <div class="glass-panel p-6 rounded-2xl border-t-2 border-orange-500">
+                <div class="text-gray-400 text-xs font-bold mb-2 uppercase tracking-widest"><i class="fas fa-fire text-orange-500 mr-2"></i>連續登入天數</div>
+                <div class="text-4xl font-mono font-bold text-white" id="streakDisplay">--<span class="text-lg text-gray-500 ml-1">days</span></div>
+            </div>
+            <div class="glass-panel p-6 rounded-2xl border-t-2 border-yellow-500 relative overflow-hidden">
+                <div class="text-gray-400 text-xs font-bold mb-2 uppercase tracking-widest"><i class="fas fa-trophy text-yellow-500 mr-2"></i>解鎖書桌</div>
+                <div class="text-2xl font-bold text-yellow-500 italic mt-2" id="rankDisplay">分析中...</div>
+                <i class="fas fa-medal absolute -bottom-4 -right-4 text-6xl text-white/5"></i>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-xl font-bold text-white mb-4"><i class="fas fa-door-open mr-2 text-blue-400"></i>選擇潛入模式</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="glass-panel p-8 rounded-3xl room-card transition-all duration-300 flex flex-col border border-white/10 group cursor-pointer" onclick="location.href='ai-room.html'">
+                    <div class="text-blue-500 text-4xl mb-4 group-hover:scale-110 transition-transform"><i class="fas fa-desktop"></i></div>
+                    <h3 class="text-2xl font-black text-white mb-2">線上/沉浸自習室</h3>
+                    <p class="text-gray-400 text-sm mb-6 flex-1">使用電腦 Webcam 進行 AI 視線與物件分析，適合長時間任務。</p>
+                    <div class="w-full text-center bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold text-white transition">進入 AI 教室</div>
+                </div>
+
+                <div class="glass-panel p-8 rounded-3xl room-card transition-all duration-300 flex flex-col border border-white/10 group cursor-pointer" onclick="location.href='flip-room.html'">
+                    <div class="text-green-500 text-4xl mb-4 group-hover:scale-110 transition-transform"><i class="fas fa-mobile-screen-button"></i></div>
+                    <h3 class="text-2xl font-black text-white mb-2">手機翻轉自習室</h3>
+                    <p class="text-gray-400 text-sm mb-6 flex-1">使用手機陀螺儀偵測。將螢幕朝下平放即開始專注計時。</p>
+                    <div class="w-full text-center bg-green-600 hover:bg-green-500 py-3 rounded-xl font-bold text-white transition">進入翻轉教室</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="glass-panel rounded-3xl overflow-hidden flex-1 flex flex-col">
+            <div class="p-6 border-b border-white/5 bg-black/20">
+                <h3 class="text-lg font-bold text-white"><i class="fas fa-history mr-2 text-blue-400"></i>個人潛入紀錄</h3>
+            </div>
+            <div class="p-0 overflow-y-auto max-h-[300px]">
+                <table class="w-full text-left border-collapse">
+                    <tbody id="recordsTableBody" class="text-sm text-gray-300 divide-y divide-white/5">
+                        <tr><td colspan="3" class="p-8 text-center text-gray-500">載入數據中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let myUsername = localStorage.getItem('studyVerseUser');
+
+        function checkLogin() {
+            if (!myUsername) {
+                document.getElementById('loginOverlay').classList.remove('hidden');
+                // 聚焦在輸入框，方便直接打字
+                setTimeout(() => document.getElementById('setupName').focus(), 100);
+            } else {
+                document.getElementById('navName').innerText = myUsername;
+                document.getElementById('navAvatar').src = `https://api.dicebear.com/7.x/big-smile/svg?seed=${myUsername}&backgroundColor=b6e3f4`;
+                fetchUserStats();
+            }
+        }
+
+        function saveName() {
+            const name = document.getElementById('setupName').value.trim();
+            if (name) {
+                localStorage.setItem('studyVerseUser', name);
+                myUsername = name;
+                document.getElementById('loginOverlay').classList.add('hidden');
+                checkLogin();
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('studyVerseUser');
+            location.reload();
+        }
+
+        async function fetchUserStats() {
+            try {
+                const response = await fetch(`/api/user-stats?username=${encodeURIComponent(myUsername)}`);
+                
+                // 檢查 HTTP 狀態碼
+                if (!response.ok) throw new Error('伺服器回應錯誤');
+                
+                const data = await response.json();
+                
+                const totalMinutes = Math.floor(data.user.total_seconds / 60);
+                const streak = data.user.streak;
+
+                document.getElementById('totalTimeDisplay').innerHTML = `${totalMinutes}<span class="text-lg text-gray-500 ml-1">min</span>`;
+                document.getElementById('streakDisplay').innerHTML = `${streak}<span class="text-lg text-gray-500 ml-1">days</span>`;
+                
+                let deskName = "🪵 初心木桌";
+                if (streak >= 30) deskName = "🚀 虛擬座艙";
+                else if (streak >= 7) deskName = "👑 黃金書桌";
+                else if (streak >= 3) deskName = "⚙️ 合金工作台";
+                document.getElementById('rankDisplay').innerText = deskName;
+
+                const tbody = document.getElementById('recordsTableBody');
+                if (!data.records || data.records.length === 0) {
+                    // 修正：加入 colspan="3" 避免表格跑版
+                    tbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-gray-500">尚無紀錄，開始第一次潛入吧！</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = data.records.map(record => {
+                    const date = new Date(record.created_at);
+                    const dateStr = date.toLocaleDateString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    const m = Math.floor(record.focus_seconds / 60);
+                    const s = record.focus_seconds % 60;
+                    
+                    let modeBadge = record.room_type === 'ai-room' 
+                        ? `<span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs border border-blue-500/20">🖥️ AI 偵測</span>`
+                        : `<span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs border border-green-500/20">📱 手機翻轉</span>`;
+
+                    return `
+                        <tr class="hover:bg-white/5 transition-colors">
+                            <td class="p-4"><span class="text-gray-400 text-xs">${dateStr}</span></td>
+                            <td class="p-4">${modeBadge}</td>
+                            <td class="p-4 text-right font-mono text-green-400 font-bold">+ ${m}m ${s}s</td>
+                        </tr>`;
+                }).join('');
+            } catch (error) {
+                console.error("讀取失敗:", error);
+                // 發生錯誤時顯示給使用者的 UI 回饋
+                const tbody = document.getElementById('recordsTableBody');
+                tbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-red-500/80"><i class="fas fa-exclamation-triangle mr-2"></i>數據讀取失敗，請確認後端伺服器是否運行中。</td></tr>`;
+                
+                // 發生錯誤時，將統計資料顯示為 --
+                document.getElementById('totalTimeDisplay').innerHTML = `--<span class="text-lg text-gray-500 ml-1">min</span>`;
+                document.getElementById('streakDisplay').innerHTML = `--<span class="text-lg text-gray-500 ml-1">days</span>`;
+                document.getElementById('rankDisplay').innerText = "無法分析";
+            }
+        }
+
+        checkLogin();
+    </script>
+</body>
+</html>

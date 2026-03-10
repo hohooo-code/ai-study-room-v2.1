@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手機翻轉自習室 | AI Study Room</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; margin: 0; background-color: #f4f6f9; transition: background-color 0.5s ease;
+            text-align: center; padding: 20px; box-sizing: border-box;
+        }
+        h1 { color: #333; margin-bottom: 5px;}
+        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
+        
+        #status-box {
+            background: white; padding: 30px; border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.05); width: 100%; max-width: 400px;
+        }
+        #status { font-size: 1.2rem; font-weight: bold; color: #e74c3c; margin: 15px 0; min-height: 1.5em;}
+        #timer { font-size: 3.5rem; font-weight: bold; color: #2c3e50; margin-bottom: 20px; font-variant-numeric: tabular-nums;}
+        
+        button {
+            padding: 15px 30px; font-size: 1.2rem; color: white; background-color: #3498db;
+            border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 100%; transition: background-color 0.2s;
+        }
+        button:hover { background-color: #2980b9; }
+        #stopBtn { background-color: #e74c3c; margin-top: 15px;}
+        #stopBtn:hover { background-color: #c0392b; }
+        
+        .hidden { display: none !important; }
+        .back-link { margin-top: 20px; color: #3498db; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>省電翻轉自習室</h1>
+    <p class="subtitle">利用陀螺儀偵測，螢幕朝下即開始計時</p>
+
+    <div id="status-box">
+        <div id="timer">00:00:00</div>
+        <div id="status">等待開始...</div>
+        
+        <button id="startBtn">開始專注</button>
+        <button id="stopBtn" class="hidden">結束自習</button>
+    </div>
+
+    <a href="index.html" class="back-link">← 返回專業大廳</a>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusDisplay = document.getElementById('status');
+        const timerDisplay = document.getElementById('timer');
+
+        let isTracking = false;   
+        let isFocusing = false;   
+        let focusSeconds = 0;     
+        let timerInterval;        
+        let warningTimeout;       // 警告緩衝計時器 (3秒)
+
+        function formatTime(totalSeconds) {
+            const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+            const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+            const s = (totalSeconds % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        startBtn.addEventListener('click', async () => {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permissionState = await DeviceOrientationEvent.requestPermission();
+                    if (permissionState === 'granted') { startTracking(); } 
+                    else { alert('需要陀螺儀權限才能使用喔！'); }
+                } catch (error) { console.error(error); }
+            } else {
+                startTracking();
+            }
+        });
+
+        // 這是我們更新過的地方：結束時將秒數傳送給伺服器 API
+        stopBtn.addEventListener('click', async () => {
+            stopTracking();
+            statusDisplay.textContent = `本次自習結束，有效專注：${formatTime(focusSeconds)}`;
+            statusDisplay.style.color = "#2c3e50";
+            document.body.style.backgroundColor = "#f4f6f9";
+
+            // 如果專注時間大於 0 秒，才傳送給資料庫儲存
+            if (focusSeconds > 0) {
+                try {
+                    const response = await fetch('/api/save-focus', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        // 打包資料：告訴後端這是從哪間教室來的，以及專注了幾秒
+                        body: JSON.stringify({
+                            roomType: 'flip-room', 
+                            focusSeconds: focusSeconds
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (response.ok) {
+                        console.log("✅ 資料已成功存入資料庫！伺服器回應：", result);
+                    } else {
+                        console.error("❌ 伺服器回報錯誤：", result);
+                    }
+                } catch (error) {
+                    console.error("儲存紀錄時發生網路錯誤:", error);
+                }
+            }
+        });
+
+        function startTracking() {
+            isTracking = true; focusSeconds = 0;
+            timerDisplay.textContent = "00:00:00";
+            startBtn.classList.add('hidden'); stopBtn.classList.remove('hidden');
+            statusDisplay.textContent = "請將手機螢幕朝下平放..."; statusDisplay.style.color = "#e67e22";
+            window.addEventListener('deviceorientation', handleOrientation);
+        }
+
+        function stopTracking() {
+            isTracking = false; isFocusing = false;
+            clearInterval(timerInterval); clearTimeout(warningTimeout);
+            window.removeEventListener('deviceorientation', handleOrientation);
+            startBtn.classList.remove('hidden'); stopBtn.classList.add('hidden');
+            startBtn.textContent = "重新開始";
+        }
+
+        function handleOrientation(event) {
+            if (!isTracking) return;
+
+            const beta = event.beta;
+            const gamma = event.gamma;
+            
+            // 判斷：螢幕朝下平放 (前後傾斜大於160度，左右傾斜小於20度)
+            const isFaceDown = Math.abs(beta) > 160 && Math.abs(gamma) < 20;
+
+            if (isFaceDown && !isFocusing) {
+                // [狀態改變]：剛把手機蓋下
+                isFocusing = true;
+                clearTimeout(warningTimeout); // 清除警告倒數
+                
+                statusDisplay.textContent = "專注中...請保持！";
+                statusDisplay.style.color = "#27ae60";
+                document.body.style.backgroundColor = "#d5f5e3"; 
+                
+                // 確保不會重複啟動計時器
+                clearInterval(timerInterval);
+                timerInterval = setInterval(() => {
+                    focusSeconds++;
+                    timerDisplay.textContent = formatTime(focusSeconds);
+                }, 1000);
+
+            } else if (!isFaceDown && isFocusing) {
+                // [狀態改變]：剛把手機拿起來
+                isFocusing = false;
+                clearInterval(timerInterval); // 暫停計時
+                
+                statusDisplay.textContent = "⚠️ 請在 3 秒內放回桌面！";
+                statusDisplay.style.color = "#e74c3c";
+                document.body.style.backgroundColor = "#fadbd8"; 
+                
+                // 啟動 3 秒違規倒數
+                warningTimeout = setTimeout(() => {
+                    if(!isFocusing) {
+                        // 3 秒後依然沒有放回去，判定違規中斷
+                        stopTracking();
+                        statusDisplay.textContent = "❌ 偵測到違規，專注已中斷！";
+                        
+                        // 違規中斷時，也把先前的專注時間存起來
+                        if (focusSeconds > 0) {
+                            fetch('/api/save-focus', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ roomType: 'flip-room-interrupted', focusSeconds: focusSeconds })
+                            }).catch(err => console.error(err));
+                        }
+                    }
+                }, 3000);
+            }
+        }
+    </script>
+</body>
+</html>
